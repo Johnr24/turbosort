@@ -5,9 +5,9 @@ services:
     build: .
     container_name: turbosort
     volumes:
-      - ./source:/app/source # Source directory
-      - ./destination:/app/destination # Destination directory
-    environment:
-      - SOURCE_DIR=/app/source
-      - DEST_DIR=/app/destination
+      - ${SOURCE_VOLUME}:/app/source # Source directory
+      - ${DESTINATION_VOLUME}:/app/destination # Destination directory
+      - ${HISTORY_VOLUME}:/app/history # Directory to store history file
+    env_file:
+      - .env
     restart: unless-stopped 
