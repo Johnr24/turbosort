@@ -112,6 +112,18 @@ TurboSort keeps track of all copied files in a JSON file (`turbosort_history.jso
 
 This history persists between program runs, allowing you to see a complete record of all file operations.
 
+### File Transfer Tracking
+
+Once a file has been processed and copied to its destination, TurboSort will remember this and not process it again, even if:
+
+- The destination file is deleted
+- TurboSort is restarted
+- The `.turbosort` file is modified
+
+This prevents unnecessary file transfers and ensures efficient operation. TurboSort uses the source file path and size to determine if a file has already been processed.
+
+If the source file changes (detected by a change in file size), TurboSort will transfer it again. You can clear the history file to force TurboSort to re-process all files.
+
 ## Year Prefix Feature
 
 TurboSort supports an optional feature to extract years from the `.turbosort` path and use them as prefixes in the destination structure.

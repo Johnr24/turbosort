@@ -138,12 +138,28 @@ class TurboSorter:
             # Copy all files except the .turbosort file
             for file_path in directory.iterdir():
                 if file_path.is_file() and file_path.name != TURBOSORT_FILE:
+                    # Check if this file has already been processed
+                    file_path_str = str(file_path)
+                    
+                    # If the file is already in our history, skip it
+                    if file_path_str in self.copied_files:
+                        file_size = file_path.stat().st_size
+                        recorded_size = self.copied_files[file_path_str].get('size', 0)
+                        
+                        # Only copy if the file size has changed (indicating it's different)
+                        if file_size == recorded_size:
+                            logger.info(f"Skipping already processed file: {file_path.name}")
+                            continue
+                        else:
+                            logger.info(f"File size changed for {file_path.name}, re-copying")
+                    
+                    # Copy the file if it's not in history or has changed
                     target_file = target_dir / file_path.name
                     shutil.copy2(file_path, target_file)
                     
                     # Record the copied file with timestamp
                     timestamp = datetime.now()
-                    self.copied_files[str(file_path)] = {
+                    self.copied_files[file_path_str] = {
                         'destination': str(target_file),
                         'timestamp': timestamp.isoformat(),
                         'size': file_path.stat().st_size
