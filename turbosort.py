@@ -37,6 +37,8 @@ HISTORY_FILE = os.environ.get('HISTORY_FILE', os.path.join(HISTORY_DIR, 'turboso
 ENABLE_YEAR_PREFIX = os.environ.get('ENABLE_YEAR_PREFIX', 'false').lower() in ('true', 'yes', '1')
 # Option to force re-copy of files regardless of history
 FORCE_RECOPY = os.environ.get('FORCE_RECOPY', 'false').lower() in ('true', 'yes', '1')
+# How often to perform a full rescan (in seconds), 0 to disable
+RESCAN_INTERVAL = int(os.environ.get('RESCAN_INTERVAL', '60'))
 
 
 class TurboSorter:
@@ -47,6 +49,14 @@ class TurboSorter:
         # Normalize paths to ensure no trailing slash issues
         self.source_dir = Path(os.path.normpath(SOURCE_DIR))
         self.dest_dir = Path(os.path.normpath(DEST_DIR))
+        
+        # Store the source/dest directory for container-to-host path mapping
+        self.source_container_path = '/app/source/'
+        self.dest_container_path = '/app/destination/'
+        self.running_in_container = os.path.exists('/.dockerenv')
+        
+        if self.running_in_container:
+            logger.info("Running in Docker container - will translate paths accordingly")
         
         # Ensure directories exist
         self.source_dir.mkdir(parents=True, exist_ok=True)
@@ -92,7 +102,10 @@ class TurboSorter:
     
     def get_file_identifier(self, file_path):
         """
-        Generate a unique identifier for a file based on its path and modification time.
+        Generate a unique identifier for a file based on its path and attributes.
+        
+        The identifier is based on BOTH the file contents/attributes AND its source folder location.
+        This ensures that identical files in different folders are treated as different files.
         
         Args:
             file_path (Path): Path to the file
@@ -105,8 +118,15 @@ class TurboSorter:
         
         # Get file stats
         stats = file_path.stat()
+        
+        # Use the full source path as part of the identifier
+        # This ensures that identical files in different folders are treated as different
+        source_path = str(file_path)
+        
         # Create a unique identifier based on path, size and modification time
-        identifier = f"{file_path}:{stats.st_size}:{stats.st_mtime}"
+        # The source path includes the folder location, making it a path+file combination
+        identifier = f"{source_path}:{stats.st_size}:{stats.st_mtime}"
+        
         # Use xxhash for extremely fast hashing - much better than cryptographic hashes for this purpose
         return xxhash.xxh64(identifier.encode()).hexdigest()
     
@@ -170,24 +190,36 @@ class TurboSorter:
             # Copy all files except the .turbosort file
             for file_path in directory.iterdir():
                 if file_path.is_file() and file_path.name != TURBOSORT_FILE:
+                    # Skip files that don't exist (could have been deleted after directory listing)
+                    if not file_path.exists():
+                        logger.warning(f"File disappeared during processing: {file_path}")
+                        continue
+                        
                     # Get a unique identifier for the file
                     file_identifier = self.get_file_identifier(file_path)
                     file_path_str = str(file_path)
                     
-                    # Skip if we're not in force mode and the file has already been processed
+                    # Check if this EXACT file+folder combination has already been processed (ONE-AND-DONE BEHAVIOR)
+                    # We identify files by both their contents/attributes AND their source location
+                    # This means identical files in different source folders are treated as different files
                     if not FORCE_RECOPY and file_path_str in self.copied_files:
                         # Check if the file identifier matches what we have in history
                         stored_identifier = self.copied_files[file_path_str].get('identifier')
                         if stored_identifier and stored_identifier == file_identifier:
-                            logger.info(f"Skipping already processed file: {file_path.name}")
+                            logger.info(f"Skipping already processed file: {file_path.name} (one-and-done)")
                             continue
                         else:
-                            logger.info(f"File {file_path.name} changed, re-copying")
+                            # Only process if the source file has changed
+                            logger.info(f"Source file {file_path.name} has changed, processing again")
                     
-                    # Copy the file if it's not in history, has changed, or force mode is on
+                    # Copy the file if it's not in history or the source has changed
                     target_file = target_dir / file_path.name
                     
                     try:
+                        # Ensure target directory exists, in case it was deleted
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        # Copy the file
                         shutil.copy2(file_path, target_file)
                         logger.info(f"Copied: {file_path.name} to {target_dir}/")
                         
@@ -212,9 +244,53 @@ class TurboSorter:
         """Scan all directories for .turbosort files."""
         logger.info(f"Scanning for .turbosort files...")
         
+        # First, clean history by removing entries for files that no longer exist
+        self.clean_history()
+        
         # Walk through all subdirectories
         for root, _, _ in os.walk(self.source_dir):
             self.process_directory(Path(root))
+    
+    def clean_history(self):
+        """Remove entries from history for files that no longer exist."""
+        files_to_remove = []
+        
+        # Check each file in history
+        for file_path_str in self.copied_files:
+            # First try the path as is
+            file_path = Path(file_path_str)
+            
+            # Check if this is a container path and adjust accordingly
+            if self.running_in_container:
+                # We're in the container and paths should be container paths
+                if not file_path_str.startswith(self.source_container_path):
+                    # Skip files not in the source directory
+                    continue
+            else:
+                # We're running on the host, but file paths in history might be container paths
+                if file_path_str.startswith('/app/'):
+                    # Convert container path to host path
+                    if file_path_str.startswith(self.source_container_path):
+                        relative_path = file_path_str[len(self.source_container_path):]
+                        host_path = self.source_dir / relative_path
+                        file_path = host_path
+            
+            # If file doesn't exist anymore, mark for removal
+            try:
+                if not file_path.exists():
+                    files_to_remove.append(file_path_str)
+                    logger.info(f"Removing from history: {file_path_str} (file no longer exists)")
+            except Exception as e:
+                logger.warning(f"Error checking if file exists: {file_path_str} - {e}")
+        
+        # Remove marked files from history
+        for file_path_str in files_to_remove:
+            del self.copied_files[file_path_str]
+        
+        # Save updated history
+        if files_to_remove:
+            logger.info(f"Removed {len(files_to_remove)} non-existent files from history")
+            self.save_history()
     
     def get_copied_files(self):
         """
@@ -269,6 +345,12 @@ class FileChangeHandler(FileSystemEventHandler):
     
     def __init__(self, sorter):
         self.sorter = sorter
+        # Track which directories we need to process
+        self.dirs_to_process = set()
+        # Throttle time to batch events (in seconds)
+        self.throttle_time = 0.5
+        # Last time we processed any events
+        self.last_process_time = time.time()
         super().__init__()
     
     def on_created(self, event):
@@ -276,20 +358,57 @@ class FileChangeHandler(FileSystemEventHandler):
         if not event.is_directory:
             path = Path(event.src_path)
             
-            # If a .turbosort file is created, process its directory
+            # If a .turbosort file is created, process its directory immediately
             if path.name == TURBOSORT_FILE:
                 logger.info(f"New .turbosort file detected: {path}")
                 self.sorter.process_directory(path.parent)
+            else:
+                # For other files, add the parent directory to the processing queue
+                # Find the closest parent directory with a .turbosort file
+                parent_dir = path.parent
+                while parent_dir != Path(SOURCE_DIR) and parent_dir != Path('/'):
+                    if (parent_dir / TURBOSORT_FILE).exists():
+                        self.dirs_to_process.add(parent_dir)
+                        logger.info(f"Queued directory for processing due to new file: {parent_dir}")
+                        break
+                    parent_dir = parent_dir.parent
     
     def on_modified(self, event):
         """Handle file modification events."""
         if not event.is_directory:
             path = Path(event.src_path)
             
-            # If a .turbosort file is modified, process its directory
+            # If a .turbosort file is modified, process its directory immediately
             if path.name == TURBOSORT_FILE:
                 logger.info(f"Modified .turbosort file detected: {path}")
                 self.sorter.process_directory(path.parent)
+    
+    def on_deleted(self, event):
+        """Handle file deletion events (for .turbosort files)."""
+        if not event.is_directory:
+            path = Path(event.src_path)
+            
+            # If a .turbosort file is deleted, log it
+            if path.name == TURBOSORT_FILE:
+                logger.info(f".turbosort file deleted: {path}")
+    
+    def process_queued_dirs(self):
+        """Process any directories that have queued changes."""
+        current_time = time.time()
+        
+        # Only process if enough time has passed since the last event (throttling)
+        if current_time - self.last_process_time >= self.throttle_time and self.dirs_to_process:
+            logger.info(f"Processing {len(self.dirs_to_process)} directories with changes")
+            
+            for dir_path in self.dirs_to_process:
+                try:
+                    self.sorter.process_directory(dir_path)
+                except Exception as e:
+                    logger.error(f"Error processing queued directory {dir_path}: {e}")
+            
+            # Clear the queue
+            self.dirs_to_process.clear()
+            self.last_process_time = current_time
 
 
 def print_stats(sorter):
@@ -348,14 +467,34 @@ def main():
     parser = argparse.ArgumentParser(description='TurboSort - Directory watcher and file sorter')
     parser.add_argument('--history', action='store_true', help='Display copy history')
     parser.add_argument('--detailed', action='store_true', help='Show detailed history')
+    parser.add_argument('--clear-history', action='store_true', help='Clear history file and start fresh')
+    parser.add_argument('--scan-now', action='store_true', help='Perform a full scan immediately, then exit')
     args = parser.parse_args()
     
     # Initialize the sorter
     sorter = TurboSorter()
     
+    # Handle clear-history request
+    if args.clear_history:
+        try:
+            sorter.copied_files = {}
+            sorter.save_history()
+            print(f"History file cleared: {HISTORY_FILE}")
+            return
+        except Exception as e:
+            print(f"Error clearing history: {e}")
+            return
+    
     # If --history is specified, just display history and exit
     if args.history:
         display_history(sorter, args.detailed)
+        return
+    
+    # If --scan-now is specified, just do a scan and exit
+    if args.scan_now:
+        print("Performing a full scan of all directories...")
+        sorter.scan_all()
+        print_stats(sorter)
         return
     
     # Otherwise, proceed with normal operation
@@ -374,19 +513,33 @@ def main():
     
     try:
         logger.info("TurboSort running. Press Ctrl+C to stop.")
+        if RESCAN_INTERVAL > 0:
+            logger.info(f"Full directory rescan will occur every {RESCAN_INTERVAL} seconds")
         
-        # Periodically print statistics (every 5 minutes)
+        # Periodically print statistics and run a full scan if enabled
         last_stats_time = time.time()
+        last_scan_time = time.time()
         
         while True:
-            time.sleep(1)
+            # Check if there are any directories with changes to process
+            event_handler.process_queued_dirs()
+            
+            # Sleep briefly to avoid high CPU usage
+            time.sleep(0.1)
+            
+            current_time = time.time()
             
             # Print stats every 5 minutes if files have been copied
-            current_time = time.time()
             if current_time - last_stats_time >= 300:  # 5 minutes in seconds
                 if sorter.get_copy_stats()['total_files'] > 0:
                     print_stats(sorter)
                 last_stats_time = current_time
+            
+            # Perform a full rescan if enabled
+            if RESCAN_INTERVAL > 0 and current_time - last_scan_time >= RESCAN_INTERVAL:
+                logger.info(f"Performing scheduled full directory scan (every {RESCAN_INTERVAL} seconds)")
+                sorter.scan_all()
+                last_scan_time = current_time
                 
     except KeyboardInterrupt:
         logger.info("Stopping TurboSort...")

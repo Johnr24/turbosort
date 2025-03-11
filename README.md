@@ -114,15 +114,37 @@ This history persists between program runs, allowing you to see a complete recor
 
 ### File Transfer Tracking
 
-Once a file has been processed and copied to its destination, TurboSort will remember this and not process it again, even if:
+TurboSort operates with a strict "one and done" philosophy:
 
+- Files are uniquely identified by the combination of:
+  - The file's contents and attributes (size, modification time)
+  - AND its source folder location
+- This means identical files in different source folders are treated as different files
+
+Once a file is copied to its destination, it's marked as "processed" in the history. TurboSort will NEVER copy that file again, even if:
 - The destination file is deleted
+- The destination directory is deleted
 - TurboSort is restarted
 - The `.turbosort` file is modified
 
-This prevents unnecessary file transfers and ensures efficient operation. TurboSort uses the source file path, size, and modification time to determine if a file has already been processed.
+The only exception is if the source file itself changes (modification time or size) while remaining in the same source folder.
 
-If the source file changes (detected by a change in size or modification time), TurboSort will transfer it again.
+This means you can safely delete files from destination directories without worrying about TurboSort re-copying them. TurboSort will only copy a file once, and then completely ignore it forever (unless you explicitly request a re-copy).
+
+#### Cleaning Up History
+
+When you delete files from the source directory, TurboSort automatically removes them from its history on the next scan. If you're experiencing issues with stale history entries, you can manually clear the history with:
+
+```
+python turbosort.py --clear-history
+```
+
+For Docker installations:
+```
+docker-compose exec turbosort python turbosort.py --clear-history
+```
+
+This will remove all history entries and start fresh. TurboSort will then re-process any files found in the source directories.
 
 #### Force Re-copy Mode
 
@@ -177,4 +199,4 @@ DESTINATION_DIR/2025/Project/2025/Client/Campaign/1_DRIVE/
 Without year prefix (`ENABLE_YEAR_PREFIX=false`), files would go to:
 ```
 DESTINATION_DIR/Project/2025/Client/Campaign/1_DRIVE/
-``` 
+```
