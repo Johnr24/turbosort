@@ -40,8 +40,9 @@ class TurboSorter:
     
     def __init__(self):
         """Initialize the TurboSorter with default directories."""
-        self.source_dir = Path(SOURCE_DIR)
-        self.dest_dir = Path(DEST_DIR)
+        # Normalize paths to ensure no trailing slash issues
+        self.source_dir = Path(os.path.normpath(SOURCE_DIR))
+        self.dest_dir = Path(os.path.normpath(DEST_DIR))
         
         # Ensure directories exist
         self.source_dir.mkdir(parents=True, exist_ok=True)
@@ -68,6 +69,9 @@ class TurboSorter:
         Returns:
             str or None: The extracted year or None if not found
         """
+        if not path_string:
+            return None
+        
         # Look for a 4-digit number that could be a year (between 1900 and 2099)
         year_match = re.search(r'(19\d{2}|20\d{2})', path_string)
         if year_match:
@@ -96,23 +100,40 @@ class TurboSorter:
                 logger.warning(f"Empty destination in {turbosort_path}")
                 return
             
+            # Normalize the destination path
+            dest_subdir = os.path.normpath(dest_subdir)
+            logger.info(f"Processing directory with .turbosort path: {dest_subdir}")
+            
             # Create the destination directory with the appropriate path structure
             if ENABLE_YEAR_PREFIX:
                 # Try to extract year from the destination path
                 year = self.extract_year(dest_subdir)
-                if year:
-                    # Use year as a prefix, followed by the destination path and 1_DRIVE
-                    target_dir = self.dest_dir / year / dest_subdir / "1_DRIVE"
-                    logger.info(f"Using year prefix: {year} for path: {dest_subdir}")
+                if year and year.isdigit() and len(year) == 4:
+                    # Don't duplicate the destination path - just use the year as a prefix
+                    # and keep the original destination path
+                    try:
+                        target_dir = self.dest_dir / year / dest_subdir / "1_DRIVE"
+                        logger.info(f"Using year prefix: {year} for path: {dest_subdir}")
+                    except Exception as e:
+                        logger.error(f"Error creating path with year prefix: {e}")
+                        # Fallback to standard path without year prefix
+                        target_dir = self.dest_dir / dest_subdir / "1_DRIVE"
                 else:
                     # If no year found, use the standard path
                     target_dir = self.dest_dir / dest_subdir / "1_DRIVE"
-                    logger.warning(f"No year found in path: {dest_subdir}, using standard path")
+                    logger.warning(f"No valid year found in path: {dest_subdir}, using standard path")
             else:
                 # Standard path without year prefix
                 target_dir = self.dest_dir / dest_subdir / "1_DRIVE"
             
-            target_dir.mkdir(parents=True, exist_ok=True)
+            # Ensure the target_dir is a valid path
+            try:
+                target_dir = Path(os.path.normpath(str(target_dir)))
+                logger.info(f"Final target directory: {target_dir}")
+                target_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                logger.error(f"Invalid target directory path: {e}")
+                return
             
             # Copy all files except the .turbosort file
             for file_path in directory.iterdir():
