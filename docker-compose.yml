@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  turbosort:
+    build: .
+    container_name: turbosort
+    volumes:
+      - ./source:/app/source # Source directory
+      - ./destination:/app/destination # Destination directory
+    environment:
+      - SOURCE_DIR=/app/source
+      - DEST_DIR=/app/destination
+    restart: unless-stopped 

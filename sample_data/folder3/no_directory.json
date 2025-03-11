@@ -1,0 +1,9 @@
+{
+    "name": "Sample Without Directory",
+    "type": "test",
+    "values": {
+        "a": 1,
+        "b": 2,
+        "c": 3
+    }
+} 

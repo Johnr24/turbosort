@@ -1,0 +1,10 @@
+{
+    "directory": "category2",
+    "name": "Sample Config",
+    "version": "1.0.0",
+    "settings": {
+        "enabled": true,
+        "timeout": 300,
+        "retry_attempts": 3
+    }
+} 

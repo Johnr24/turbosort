@@ -1,0 +1,6 @@
+{
+    "directory": "category1",
+    "name": "Sample Data 1",
+    "description": "This is a sample JSON file with a directory key",
+    "data": [1, 2, 3, 4, 5]
+} 
