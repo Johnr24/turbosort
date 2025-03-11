@@ -120,9 +120,24 @@ Once a file has been processed and copied to its destination, TurboSort will rem
 - TurboSort is restarted
 - The `.turbosort` file is modified
 
-This prevents unnecessary file transfers and ensures efficient operation. TurboSort uses the source file path and size to determine if a file has already been processed.
+This prevents unnecessary file transfers and ensures efficient operation. TurboSort uses the source file path, size, and modification time to determine if a file has already been processed.
 
-If the source file changes (detected by a change in file size), TurboSort will transfer it again. You can clear the history file to force TurboSort to re-process all files.
+If the source file changes (detected by a change in size or modification time), TurboSort will transfer it again.
+
+#### Force Re-copy Mode
+
+If you need to force TurboSort to re-process all files regardless of history, you can enable the `FORCE_RECOPY` option:
+
+```
+FORCE_RECOPY=true
+```
+
+When this option is enabled:
+- All files will be re-copied to their destinations, even if they've been processed before
+- History will still be updated with the new transfers
+- This is useful when you want to refresh all files or rebuild a destination directory
+
+To return to normal operation, set `FORCE_RECOPY=false` and restart TurboSort.
 
 ## Year Prefix Feature
 

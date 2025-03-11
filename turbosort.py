@@ -13,6 +13,7 @@ import shutil
 import logging
 import argparse
 import re
+import xxhash
 from pathlib import Path
 from datetime import datetime
 from watchdog.observers import Observer
@@ -30,9 +31,12 @@ logger = logging.getLogger(__name__)
 SOURCE_DIR = os.environ.get('SOURCE_DIR', 'source')
 DEST_DIR = os.environ.get('DEST_DIR', 'destination')
 TURBOSORT_FILE = '.turbosort'
-HISTORY_FILE = os.environ.get('HISTORY_FILE', 'turbosort_history.json')
+HISTORY_DIR = os.environ.get('HISTORY_DIR', os.path.join(os.environ.get('HISTORY_VOLUME', 'history')))
+HISTORY_FILE = os.environ.get('HISTORY_FILE', os.path.join(HISTORY_DIR, 'turbosort_history.json'))
 # Enable year prefix feature
 ENABLE_YEAR_PREFIX = os.environ.get('ENABLE_YEAR_PREFIX', 'false').lower() in ('true', 'yes', '1')
+# Option to force re-copy of files regardless of history
+FORCE_RECOPY = os.environ.get('FORCE_RECOPY', 'false').lower() in ('true', 'yes', '1')
 
 
 class TurboSorter:
@@ -48,6 +52,9 @@ class TurboSorter:
         self.source_dir.mkdir(parents=True, exist_ok=True)
         self.dest_dir.mkdir(parents=True, exist_ok=True)
         
+        # Ensure history directory exists
+        Path(HISTORY_DIR).mkdir(parents=True, exist_ok=True)
+        
         # Track copied files - key: source path, value: (destination path, timestamp)
         self.copied_files = {}
         
@@ -56,8 +63,13 @@ class TurboSorter:
         
         logger.info(f"TurboSort initialized: watching {self.source_dir}")
         logger.info(f"Files will be sorted to {self.dest_dir}")
+        logger.info(f"History file: {HISTORY_FILE}")
+        
         if ENABLE_YEAR_PREFIX:
             logger.info("Year prefix feature is enabled")
+        
+        if FORCE_RECOPY:
+            logger.warning("Force re-copy mode is enabled - all files will be copied regardless of history")
     
     def extract_year(self, path_string):
         """
@@ -77,6 +89,26 @@ class TurboSorter:
         if year_match:
             return year_match.group(1)
         return None
+    
+    def get_file_identifier(self, file_path):
+        """
+        Generate a unique identifier for a file based on its path and modification time.
+        
+        Args:
+            file_path (Path): Path to the file
+            
+        Returns:
+            str: A unique identifier for the file
+        """
+        if not file_path.exists():
+            return None
+        
+        # Get file stats
+        stats = file_path.stat()
+        # Create a unique identifier based on path, size and modification time
+        identifier = f"{file_path}:{stats.st_size}:{stats.st_mtime}"
+        # Use xxhash for extremely fast hashing - much better than cryptographic hashes for this purpose
+        return xxhash.xxh64(identifier.encode()).hexdigest()
     
     def process_directory(self, directory):
         """
@@ -138,37 +170,40 @@ class TurboSorter:
             # Copy all files except the .turbosort file
             for file_path in directory.iterdir():
                 if file_path.is_file() and file_path.name != TURBOSORT_FILE:
-                    # Check if this file has already been processed
+                    # Get a unique identifier for the file
+                    file_identifier = self.get_file_identifier(file_path)
                     file_path_str = str(file_path)
                     
-                    # If the file is already in our history, skip it
-                    if file_path_str in self.copied_files:
-                        file_size = file_path.stat().st_size
-                        recorded_size = self.copied_files[file_path_str].get('size', 0)
-                        
-                        # Only copy if the file size has changed (indicating it's different)
-                        if file_size == recorded_size:
+                    # Skip if we're not in force mode and the file has already been processed
+                    if not FORCE_RECOPY and file_path_str in self.copied_files:
+                        # Check if the file identifier matches what we have in history
+                        stored_identifier = self.copied_files[file_path_str].get('identifier')
+                        if stored_identifier and stored_identifier == file_identifier:
                             logger.info(f"Skipping already processed file: {file_path.name}")
                             continue
                         else:
-                            logger.info(f"File size changed for {file_path.name}, re-copying")
+                            logger.info(f"File {file_path.name} changed, re-copying")
                     
-                    # Copy the file if it's not in history or has changed
+                    # Copy the file if it's not in history, has changed, or force mode is on
                     target_file = target_dir / file_path.name
-                    shutil.copy2(file_path, target_file)
                     
-                    # Record the copied file with timestamp
-                    timestamp = datetime.now()
-                    self.copied_files[file_path_str] = {
-                        'destination': str(target_file),
-                        'timestamp': timestamp.isoformat(),
-                        'size': file_path.stat().st_size
-                    }
-                    
-                    # Save history after each copy
-                    self.save_history()
-                    
-                    logger.info(f"Copied: {file_path.name} to {target_dir}/")
+                    try:
+                        shutil.copy2(file_path, target_file)
+                        logger.info(f"Copied: {file_path.name} to {target_dir}/")
+                        
+                        # Record the copied file with timestamp and identifier
+                        timestamp = datetime.now()
+                        self.copied_files[file_path_str] = {
+                            'destination': str(target_file),
+                            'timestamp': timestamp.isoformat(),
+                            'size': file_path.stat().st_size,
+                            'identifier': file_identifier
+                        }
+                        
+                        # Save history after each copy
+                        self.save_history()
+                    except Exception as e:
+                        logger.error(f"Error copying {file_path.name}: {str(e)}")
         
         except Exception as e:
             logger.error(f"Error processing {directory}: {str(e)}")
@@ -224,6 +259,9 @@ class TurboSorter:
                 logger.error(f"Error loading history: {str(e)}")
                 # If there's an error loading, start with an empty history
                 self.copied_files = {}
+        else:
+            logger.info(f"No history file found at {history_path}, starting with empty history")
+            self.copied_files = {}
 
 
 class FileChangeHandler(FileSystemEventHandler):
