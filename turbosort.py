@@ -39,6 +39,10 @@ ENABLE_YEAR_PREFIX = os.environ.get('ENABLE_YEAR_PREFIX', 'false').lower() in ('
 FORCE_RECOPY = os.environ.get('FORCE_RECOPY', 'false').lower() in ('true', 'yes', '1')
 # How often to perform a full rescan (in seconds), 0 to disable
 RESCAN_INTERVAL = int(os.environ.get('RESCAN_INTERVAL', '60'))
+# Enable/disable drive suffix feature
+ENABLE_DRIVE_SUFFIX = os.environ.get('ENABLE_DRIVE_SUFFIX', 'true').lower() in ('true', 'yes', '1')
+# Configurable drive suffix
+DRIVE_SUFFIX = os.environ.get('DRIVE_SUFFIX', 'incoming')
 
 
 class TurboSorter:
@@ -77,6 +81,11 @@ class TurboSorter:
         
         if ENABLE_YEAR_PREFIX:
             logger.info("Year prefix feature is enabled")
+        
+        if ENABLE_DRIVE_SUFFIX:
+            logger.info(f"Drive suffix feature is enabled with suffix: '{DRIVE_SUFFIX}'")
+        else:
+            logger.info("Drive suffix feature is disabled")
         
         if FORCE_RECOPY:
             logger.warning("Force re-copy mode is enabled - all files will be copied regardless of history")
@@ -164,19 +173,31 @@ class TurboSorter:
                     # Don't duplicate the destination path - just use the year as a prefix
                     # and keep the original destination path
                     try:
-                        target_dir = self.dest_dir / year / dest_subdir / "1_DRIVE"
+                        if ENABLE_DRIVE_SUFFIX:
+                            target_dir = self.dest_dir / year / dest_subdir / DRIVE_SUFFIX
+                        else:
+                            target_dir = self.dest_dir / year / dest_subdir
                         logger.info(f"Using year prefix: {year} for path: {dest_subdir}")
                     except Exception as e:
                         logger.error(f"Error creating path with year prefix: {e}")
                         # Fallback to standard path without year prefix
-                        target_dir = self.dest_dir / dest_subdir / "1_DRIVE"
+                        if ENABLE_DRIVE_SUFFIX:
+                            target_dir = self.dest_dir / dest_subdir / DRIVE_SUFFIX
+                        else:
+                            target_dir = self.dest_dir / dest_subdir
                 else:
                     # If no year found, use the standard path
-                    target_dir = self.dest_dir / dest_subdir / "1_DRIVE"
+                    if ENABLE_DRIVE_SUFFIX:
+                        target_dir = self.dest_dir / dest_subdir / DRIVE_SUFFIX
+                    else:
+                        target_dir = self.dest_dir / dest_subdir
                     logger.warning(f"No valid year found in path: {dest_subdir}, using standard path")
             else:
                 # Standard path without year prefix
-                target_dir = self.dest_dir / dest_subdir / "1_DRIVE"
+                if ENABLE_DRIVE_SUFFIX:
+                    target_dir = self.dest_dir / dest_subdir / DRIVE_SUFFIX
+                else:
+                    target_dir = self.dest_dir / dest_subdir
             
             # Ensure the target_dir is a valid path
             try:

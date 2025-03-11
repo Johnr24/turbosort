@@ -6,8 +6,9 @@ A simple file sorting system that watches directories and automatically sorts fi
 
 1. In any subdirectory of the `source` folder, create a `.turbosort` file
 2. In this file, write the destination path (e.g., `documents/work`)
-3. All files in that directory will be copied to that path in the `destination` folder, under a `1_DRIVE` subdirectory
-   - For example, if `.turbosort` contains `documents/work`, files will be copied to `destination/documents/work/1_DRIVE/`
+3. All files in that directory will be copied to that path in the `destination` folder, under an `incoming` subdirectory (or your custom suffix if configured)
+   - For example, if `.turbosort` contains `documents/work`, files will be copied to `destination/documents/work/incoming/`
+   - This suffix is customizable and can be disabled completely (see Configuration)
 4. Changes are detected automatically - no need to run the script again when adding files
 5. TurboSort now tracks which files have been copied, when, and where to
 
@@ -170,7 +171,7 @@ TurboSort supports an optional feature to extract years from the `.turbosort` pa
 When enabled:
 1. TurboSort will look for a 4-digit year (1900-2099) in the path specified in the `.turbosort` file
 2. If a year is found, it will be used as a prefix in the destination path
-3. The resulting structure will be: `DESTINATION_DIR/YEAR/TURBOSORT_PATH/1_DRIVE/`
+3. The resulting structure will be: `DESTINATION_DIR/YEAR/TURBOSORT_PATH/incoming/`
 
 This is useful for organizing projects by year while maintaining the internal path structure.
 
@@ -184,6 +185,24 @@ ENABLE_YEAR_PREFIX=true
 
 You can set this in your `.env` file or when running the Docker container.
 
+### Drive Suffix Feature
+
+By default, TurboSort appends an "incoming" suffix to all destination paths. This feature can now be controlled with two environment variables:
+
+- `ENABLE_DRIVE_SUFFIX`: Set to `true` to enable the feature (enabled by default), or `false` to disable it
+- `DRIVE_SUFFIX`: The custom suffix to use when the feature is enabled (defaults to "incoming")
+
+To configure the drive suffix feature, add these settings to your `.env` file:
+
+```
+# Disable the drive suffix feature entirely
+ENABLE_DRIVE_SUFFIX=false
+
+# Or customize the suffix 
+ENABLE_DRIVE_SUFFIX=true
+DRIVE_SUFFIX=my_custom_suffix
+```
+
 ### Example
 
 If a `.turbosort` file contains:
@@ -193,10 +212,20 @@ Project/2025/Client/Campaign
 
 With `ENABLE_YEAR_PREFIX=true`, files will be sorted to:
 ```
-DESTINATION_DIR/2025/Project/2025/Client/Campaign/1_DRIVE/
+DESTINATION_DIR/2025/Project/2025/Client/Campaign/incoming/
 ```
 
 Without year prefix (`ENABLE_YEAR_PREFIX=false`), files would go to:
 ```
-DESTINATION_DIR/Project/2025/Client/Campaign/1_DRIVE/
+DESTINATION_DIR/Project/2025/Client/Campaign/incoming/
+```
+
+With drive suffix disabled (`ENABLE_DRIVE_SUFFIX=false`), files would go to:
+```
+DESTINATION_DIR/Project/2025/Client/Campaign/
+```
+
+With a custom drive suffix (`DRIVE_SUFFIX=ARCHIVE`), files would go to:
+```
+DESTINATION_DIR/Project/2025/Client/Campaign/ARCHIVE/
 ```
