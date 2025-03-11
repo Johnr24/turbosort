@@ -23,31 +23,14 @@ A simple file sorting system that watches directories and automatically sorts fi
 
 ## Requirements
 
-- Python 3.6 or higher
-- Watchdog library (`pip install watchdog`)
+- Docker (for container deployment)
 
 ## Usage
 
-### Standard Method
-
-1. Install the required dependency:
-   ```
-   pip install watchdog
-   ```
-
-2. Run the script:
-   ```
-   python turbosort.py
-   ```
-
-3. Put a `.turbosort` file in any directory you want to monitor
-   - The content of the file should be the destination path
-
-4. TurboSort will automatically copy files to the right destination
 
 ### Viewing Copy History
 
-TurboSort now tracks file copying activity. To view this history:
+TurboSort tracks file copying activity. To view this history:
 
 ```
 # Display a simple table of copied files
@@ -59,48 +42,86 @@ python turbosort.py --history --detailed
 
 ### Docker Method
 
-1. Copy the `.env.template` file to `.env` and customize the volume paths:
+The recommended way to run TurboSort is using Docker Compose with our pre-built image.
+
+1. Create a `docker-compose.yml` file:
+   ```yaml
+   version: '3'
+   services:
+     turbosort:
+       image: turbosort/turbosort:latest
+       container_name: turbosort
+       restart: unless-stopped
+       volumes:
+         - ./source:/app/source
+         - ./destination:/app/destination
+         - ./turbosort_history.json:/app/turbosort_history.json
+       environment:
+         - SOURCE_DIR=/app/source
+         - DEST_DIR=/app/destination
+         - ENABLE_DRIVE_SUFFIX=true
+         - DRIVE_SUFFIX=incoming
+         - ENABLE_YEAR_PREFIX=false
+   ```
+
+2. Copy the `.env.template` file to `.env` and customize the environment variables:
    ```
    cp .env.template .env
-   # Edit .env with your preferred text editor to set your paths
+   # Edit .env with your preferred text editor to set your environment variables
    ```
 
-2. Build and start the container using Docker Compose:
+3. Start the container:
    ```
-   docker-compose up -d
-   ```
-
-3. To stop the container:
-   ```
-   docker-compose down
+   docker compose up -d
    ```
 
-4. Alternatively, run with Docker directly:
+4. To stop the container:
    ```
-   docker build -t turbosort .
-   docker run -d --name turbosort \
-     -v $(pwd)/source:/app/source \
-     -v $(pwd)/destination:/app/destination \
-     turbosort
+   docker compose down
    ```
 
-5. Put a `.turbosort` file in any directory under the `source` folder
+5. View logs:
+   ```
+   docker compose logs -f turbosort
+   ```
+
+6. Put a `.turbosort` file in any directory under the `source` folder
    - Files will be sorted to the corresponding path in the `destination` folder
+
+7. Run commands inside the container:
+   ```
+   # View file history
+   docker compose exec turbosort python turbosort.py --history
+   
+   # Clear history
+   docker compose exec turbosort python turbosort.py --clear-history
+   ```
 
 ## Customizing
 
-If you want to change the source or destination directories, edit the constants at the top of the `turbosort.py` file or set environment variables:
+You can customize TurboSort's behavior using environment variables:
 
-```python
-SOURCE_DIR = os.environ.get('SOURCE_DIR', 'source')
-DEST_DIR = os.environ.get('DEST_DIR', 'destination')
-TURBOSORT_FILE = '.turbosort'
-HISTORY_FILE = os.environ.get('HISTORY_FILE', 'turbosort_history.json')
+```yaml
+environment:
+  # Core directory settings
+  - SOURCE_DIR=/app/source
+  - DEST_DIR=/app/destination
+  - HISTORY_FILE=/app/turbosort_history.json
+  
+  # Drive suffix settings
+  - ENABLE_DRIVE_SUFFIX=true
+  - DRIVE_SUFFIX=incoming
+  
+  # Year prefix settings  
+  - ENABLE_YEAR_PREFIX=false
+  
+  # Force recopy mode
+  - FORCE_RECOPY=false
 ```
 
-When using Docker, you can modify these directories by:
-1. Changing the environment variables in `docker-compose.yml`
-2. Adjusting the volume mappings to match your local directories 
+When using Docker, you can modify the mounted directories by:
+1. Changing the environment variables in your `docker-compose.yml` file
+2. Adjusting the volume mappings to match your local directories
 
 ## Copy History
 
@@ -142,7 +163,7 @@ python turbosort.py --clear-history
 
 For Docker installations:
 ```
-docker-compose exec turbosort python turbosort.py --clear-history
+docker compose exec turbosort python turbosort.py --clear-history
 ```
 
 This will remove all history entries and start fresh. TurboSort will then re-process any files found in the source directories.
@@ -183,7 +204,7 @@ To enable this feature, set the `ENABLE_YEAR_PREFIX` environment variable to `tr
 ENABLE_YEAR_PREFIX=true
 ```
 
-You can set this in your `.env` file or when running the Docker container.
+You can set this in your `.env` file or in the environment section of your `docker-compose.yml` file.
 
 ### Drive Suffix Feature
 
@@ -192,7 +213,7 @@ By default, TurboSort appends an "incoming" suffix to all destination paths. Thi
 - `ENABLE_DRIVE_SUFFIX`: Set to `true` to enable the feature (enabled by default), or `false` to disable it
 - `DRIVE_SUFFIX`: The custom suffix to use when the feature is enabled (defaults to "incoming")
 
-To configure the drive suffix feature, add these settings to your `.env` file:
+To configure the drive suffix feature, add these settings to your environment configuration:
 
 ```
 # Disable the drive suffix feature entirely
