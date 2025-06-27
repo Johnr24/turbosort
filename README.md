@@ -1,3 +1,6 @@
+# this project is now archived, it's successor is Project Zeus. - https://github.com/Johnr24/ProjectZeus
+
+
 # TurboSort
 
 A simple file sorting system that watches directories and automatically sorts files based on `.turbosort` files.
